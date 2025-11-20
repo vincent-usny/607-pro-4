@@ -1,0 +1,146 @@
+---
+title: "Project 4"
+author: "Haoming Chen"
+date: "2025-11-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+In this project, a text classification model is built to distinguish spam and ham (non-spam) emails.  The data source comes from SpamAssassin public corpus (https://spamassassin.apache.org/old/publiccorpus/) and I select a spam and easy_ham folders to test.  The workflow includes importing files from Github, pre-processing the raw texts by converting to lowercase, removing punctuation and extra whitespace. Then the text is converted into a document-term matrix.  KNN classifier model is used to evaluate the performance.  Honestly, I didn't know R can be used to do machine learning.  This study demonstrates that R machine learning can be applied to resolve real-world problems such as automated spam detection.  
+
+
+```{r warning=FALSE, message=FALSE}
+library(tm) # text preprocessing
+library(caret) # modeling
+library(class) #KNN
+```
+
+
+**Import files from github and untar**
+
+```{r message=FALSE}
+url <- "https://github.com/vincent-usny/607-pro-4/raw/refs/heads/main/20021010_easy_ham.tar.bz2"
+download.file(url,"easy_ham.tar.bz2")
+
+url2 <- "https://github.com/vincent-usny/607-pro-4/raw/refs/heads/main/20021010_spam.tar.bz2"
+download.file(url2, "spam.tar.bz2")
+
+untar("easy_ham.tar.bz2", exdir = "easy_ham")
+untar("spam.tar.bz2", exdir = "spam")
+
+# ensure files are extracted
+ham_files <- list.files("easy_ham", recursive = TRUE)
+spam_files <- list.files("spam", recursive = TRUE)
+```
+
+
+**Read the files**
+
+```{r}
+ham_text <- sapply(ham_files, function(f) {
+  paste(readLines(file.path("easy_ham", f), warn = FALSE), collapse = " ")
+})
+
+spam_text <- sapply(spam_files, function(f) {
+  paste(readLines(file.path("spam", f), warn = FALSE), collapse = " ")
+})
+```
+
+
+**Create data frame**
+
+```{r}
+emails <- data.frame(
+  text = c(ham_text, spam_text),
+  label = factor(c(rep("ham", length(ham_text)), rep("spam", length(spam_text))))
+)
+```
+
+
+**Create Corpus and text pre-processing**
+
+```{r}
+emails$text <- iconv(emails$text, from = "", to = "UTF-8", sub = "byte")
+
+# make a corpus from a vector of text
+corpus <- VCorpus(VectorSource(emails$text))
+
+# preprocessing
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeNumbers)
+corpus <- tm_map(corpus, stripWhitespace)
+```
+
+
+**Conversion**
+
+```{r}
+# convert text to document-term matrix
+dtm <- DocumentTermMatrix(corpus)
+
+# reduce size
+dtm_small <- removeSparseTerms(dtm, 0.97)
+dtm_df <- as.data.frame(as.matrix(dtm_small))
+
+# covert dtm to numeric data frame for KNN
+dtm_df[] <- lapply(dtm_df, function(x) as.numeric(as.character(x)))
+dtm_df$label <- emails$label
+```
+
+
+**Split train/test**
+
+```{r}
+set.seed(123)
+# 70% for training, 30% for testing
+trainIndex <- createDataPartition(dtm_df$label, p = 0.7, list = FALSE)
+train <- dtm_df[trainIndex, ]
+test  <- dtm_df[-trainIndex, ]
+```
+
+
+**Fit and prediction**
+
+```{r}
+train_x <- scale(train[, -ncol(train)])
+train_y <- train$label
+test_x <- scale(test[, -ncol(test)])
+test_y <- test$label
+
+# set the neighbor = 5
+pred <- knn(train_x, test_x, train_y, k=5)
+confusionMatrix(pred, test_y)
+```
+
+**98.7% of accuracy score shows excellent performance and the p-value is much less than 0.05 which means statistical significance.**
+
+**Visualization**
+
+```{r}
+# a bar plot for confusion matrix
+cm <- confusionMatrix(pred, test_y)$table
+plot <- data.frame(
+  category = c("True Ham","False Ham","False Spam","True Spam"),
+  count = c(cm["ham","ham"],cm["ham","spam"],cm["spam","ham"],cm["spam","spam"])
+)
+
+ggplot(plot, aes(x=reorder(category,-count), y=count)) +
+  geom_col(fill="lightblue") +
+  geom_text(aes(label=count),vjust = -0.1) +
+  labs(
+    title="Confusion Matrix Count",
+    x = "",
+    y= "Count"
+  )
+```
+
+
+## Conclusion
+
+The KNN classifier achieves 98.7% on this test set, demonstrating excellent performance in distinguishing between ham and spam emails.  It's expected because this is an easy_ham folder.  The confusion matrix shows that only 9 spams are labelled as hams (false positives) and 3 hams are labelled as spams (false negatives).  A balanced accuracy of 96.8% confirms that both classes are well predicted.  These results indicate that with proper text preprocessing, text extraction, reliable machine learning methods like KNN can classify emails sufficiently.
